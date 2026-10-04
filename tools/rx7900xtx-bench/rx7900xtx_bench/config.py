@@ -10,7 +10,7 @@ PRESETS: dict[str, dict[str, Any]] = {
     "qwen35-iq3s": {
         "model_filename": "Swift-1.5-Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf",
         "context_size": 200000,
-        "depths": [4096, 16384, 32768],
+        "depths": [16384, 32768],
         "server_args": [
             "--alias", "ukisaiswift1.5-27b-GSQ-RCO",
             "--device", "Vulkan0",

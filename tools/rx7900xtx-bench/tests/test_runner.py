@@ -6,6 +6,7 @@ from unittest.mock import patch
 from rx7900xtx_bench.runner import (
     context_size_effective,
     measure_request,
+    probe_prefix_reuse,
     verify_requested_device,
     verify_server_configuration,
     write_report,
@@ -28,6 +29,7 @@ class FakeRequestClient:
         return next(self.metrics_values)
 
     def completion_stream(self, body):
+        self.body = body
         yield 1.0, {
             "content": "output",
             "tokens_predicted": 4,
@@ -75,11 +77,16 @@ class RunnerTest(unittest.TestCase):
             report_path = Path(directory) / "report.md"
             write_report(report_path, {
                 "preset": "qwen35-iq3s",
+                "fixture_id": "chat-planning-v1",
                 "depth": 4096,
+                "prompt_mode": "fresh",
                 "runs": 5,
-                "mtp_output_tps": {"mean": 12.0, "median": 11.0},
-                "end_to_end_output_tps": {"mean": 11.0, "median": 10.0},
-                "client_delivery_tps": {"mean": 10.0, "median": 9.0},
+                "mtp_output_tps": {"count": 5, "mean": 12.0, "median": 11.0, "stdev": 0.0},
+                "end_to_end_output_tps": {"count": 5, "mean": 11.0, "median": 10.0, "stdev": 0.0},
+                "client_delivery_tps": {"count": 5, "mean": 10.0, "median": 9.0, "stdev": 0.0},
+                "ttft_ms": {"count": 5, "mean": 1.0, "median": 1.0, "stdev": 0.0},
+                "request_ms": {"count": 5, "mean": 2.0, "median": 2.0, "stdev": 0.0},
+                "draft_acceptance": {"count": 5, "mean": 0.5, "median": 0.5, "stdev": 0.0},
             }, {
                 "model": {"sha256": "test"},
                 "runtime": {
@@ -100,6 +107,35 @@ class RunnerTest(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "active MTP"):
             measure_request(client, [1, 2], 4, "sample-000")
+        self.assertTrue(client.body["ignore_eos"])
+
+    @patch("rx7900xtx_bench.runner.completion_response")
+    @patch("rx7900xtx_bench.runner.measure_request")
+    def test_prefix_reuse_capability_falls_back_on_different_tokens(self, measure, completion):
+        measure.side_effect = [
+            {"prompt_eval_tokens": 8, "prompt_reused_tokens": 0, "raw_response": {"tokens": [1, 2]}},
+            {"prompt_eval_tokens": 1, "prompt_reused_tokens": 7, "raw_response": {"tokens": [2, 3]}},
+        ]
+        completion.return_value = {"tokens_predicted": 0}
+
+        capability, _ = probe_prefix_reuse(object(), list(range(8)), 8)
+
+        self.assertFalse(capability["supported"])
+        self.assertIn("deterministic", capability["reason"])
+        self.assertEqual(capability["probe_output_tokens"], 8)
+
+    @patch("rx7900xtx_bench.runner.completion_response")
+    @patch("rx7900xtx_bench.runner.measure_request")
+    def test_prefix_reuse_capability_accepts_cached_identical_prefix(self, measure, completion):
+        measure.side_effect = [
+            {"prompt_eval_tokens": 8, "prompt_reused_tokens": 0, "raw_response": {"tokens": [1, 2]}},
+            {"prompt_eval_tokens": 1, "prompt_reused_tokens": 7, "raw_response": {"tokens": [1, 2]}},
+        ]
+        completion.return_value = {"tokens_predicted": 0}
+
+        capability, _ = probe_prefix_reuse(object(), list(range(8)), 8)
+
+        self.assertTrue(capability["supported"])
 
 
 if __name__ == "__main__":

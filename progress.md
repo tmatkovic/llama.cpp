@@ -1,6 +1,6 @@
 # RX 7900 XTX Vulkan MTP progress
 
-Status: initial benchmark baseline complete. No Vulkan optimization code has been added.
+Status: benchmark harness and baseline validation are complete for the current 16k/32k scope. `n-max=2` is validated at 32k and is fixed for kernel A/B tests. No Vulkan optimization code has been added.
 
 ## Confirmed environment
 
@@ -75,8 +75,73 @@ Implemented and tested:
 - warmup, five measured fresh requests, raw responses, manifests, JSONL, CSV, JSON, and Markdown report
 - authoritative final output token count, client timings, raw server timings, and speculative counter deltas
 - unit tests for configuration, metrics, process cleanup, report generation, context alignment, SSE parsing, and prompt suffix handling
+- versioned prompt manifest with two project-authored chat fixtures and one project-authored code fixture; every fixture text and constructed token sequence has a SHA-256 record
+- `quick` as the default suite: 16384 tokens, one chat fixture, one warmup, and three measured samples
+- `common` and `full` suites: 32768 tokens, all three fixtures, one warmup, and three measured samples per fixture; `--runs` can increase the count later
+- explicit `fresh` and `reused-prefix` modes; reused-prefix runs a deterministic cache capability probe and becomes `fresh-fallback` if the pinned server/model cannot prove safe same-prefix restoration after generation
+- per-sample prompt token hash, actual evaluated/reused prompt tokens, MTP output TPS, TTFT, request time, acceptance, MTP counters, and raw response storage
+- per-fixture/depth/effective-mode summaries with count, mean, median, and standard deviation; fresh and reused-prefix samples remain separate
+
+## Completed 16k/32k benchmark validation
+
+The following local, ignored result directories use server build `0.5.0-dev-11380`, primary model SHA-256 `9aecf1cd41b2cb2f32a74e0d889e33855ebef43b26f43b43feb5720239e677e5`, requested context 200000/effective context 200192, Q8_0 K/V cache, and MTP `n-max=2`. Each row has one excluded warmup and three measured samples. `ignore_eos=true` fixed output length at 512 tokens for every measured sample.
+
+### 32k fresh `n-max=2` validation
+
+Run directories: `bench-results/20261004T100841Z-nmax2-32k-validation-fixed-output-chat-planning-v1-depth32768-nmax2-fresh/` through `20261004T101609Z-nmax2-32k-validation-fixed-output-code-review-v1-depth32768-nmax2-fresh/`.
+
+| Fixture | MTP output TPS mean | TTFT mean | Draft acceptance mean | Prompt evaluated/reused |
+|---|---:|---:|---:|---:|
+| `chat-planning-v1` | 60.14 | 44818.43 ms | 60.37% | 32768 / 0 |
+| `chat-debugging-v1` | 58.04 | 44946.21 ms | 56.72% | 32768 / 0 |
+| `code-review-v1` | 61.19 | 44959.46 ms | 62.42% | 32768 / 0 |
+
+All samples completed with active MTP draft/verify counters. This validates `n-max=2` as the fixed setting for kernel A/B tests through 32768 populated prompt tokens.
+
+### Quick 16k reused-prefix smoke test
+
+Run directory: `bench-results/20261004T102011Z-quick-16k-fixed-output-chat-planning-v1-depth16384-nmax2-reused-prefix/`.
+
+- MTP output TPS mean: 62.34
+- TTFT mean: 194.38 ms
+- Draft acceptance mean: 54.03%
+- Prompt evaluated/reused: 4 / 16380 tokens
+- The deterministic capability probe passed, so the pinned server/model safely restored the identical prefix after generation.
+
+### Full 32k reused-prefix validation
+
+Run directories: `bench-results/20261004T102138Z-full-32k-reused-prefix-chat-planning-v1-depth32768-nmax2-reused-prefix/` through `20261004T102608Z-full-32k-reused-prefix-code-review-v1-depth32768-nmax2-reused-prefix/`.
+
+| Fixture | MTP output TPS mean | TTFT mean | Draft acceptance mean | Prompt evaluated/reused |
+|---|---:|---:|---:|---:|
+| `chat-planning-v1` | 60.34 | 254.74 ms | 60.87% | 4 / 32764 |
+| `chat-debugging-v1` | 60.68 | 249.67 ms | 61.51% | 4 / 32764 |
+| `code-review-v1` | 61.85 | 250.50 ms | 63.73% | 4 / 32764 |
+
+All full-suite samples completed with 512 final output tokens and active MTP draft/verify counters. Prefix reuse is approved for this pinned model/server configuration at 16k and 32k.
+
+## Raw result retention
+
+Keep these final baseline directories until a later same-configuration control baseline replaces them:
+
+- `bench-results/20261004T100841Z-nmax2-32k-validation-fixed-output-chat-planning-v1-depth32768-nmax2-fresh/`
+- `bench-results/20261004T101224Z-nmax2-32k-validation-fixed-output-chat-debugging-v1-depth32768-nmax2-fresh/`
+- `bench-results/20261004T101609Z-nmax2-32k-validation-fixed-output-code-review-v1-depth32768-nmax2-fresh/`
+- `bench-results/20261004T102011Z-quick-16k-fixed-output-chat-planning-v1-depth16384-nmax2-reused-prefix/`
+- `bench-results/20261004T102138Z-full-32k-reused-prefix-chat-planning-v1-depth32768-nmax2-reused-prefix/`
+- `bench-results/20261004T102353Z-full-32k-reused-prefix-chat-debugging-v1-depth32768-nmax2-reused-prefix/`
+- `bench-results/20261004T102608Z-full-32k-reused-prefix-code-review-v1-depth32768-nmax2-reused-prefix/`
+
+The older 4k baseline and screening directories remain useful historical evidence but are not needed for the current 16k/32k A/B baseline. Failed or superseded runs, including the pre-`ignore_eos` quick run and the pre-fixed-output 32k validation, can be deleted. Deleting all raw result directories is possible because this document retains the summary, but it removes request-level evidence, exact manifests, and the ability to recheck an unexpected later comparison.
+
+Run the same validation from the activated `.venv-bench` environment:
+
+```bash
+python -m rx7900xtx_bench --preset qwen35-iq3s --config bench.local.json \
+  --suite common --prompt-mode fresh --mtp-n-max 2 --label nmax2-32k-validation
+```
 
 ## Next work
 
-1. Profile the measured serving path before proposing any Vulkan kernel or graph change.
-2. Add the smallest measured optimization and compare same-commit control and optimized builds.
+1. **English:** Profile the validated 16k/32k MTP serving path, identify the dominant Vulkan operation or synchronization cost, and propose one minimal optimization with a measurable A/B hypothesis.
+2. **Hrvatski:** Profiliraj validirani 16k/32k MTP serving put, utvrdi dominantnu Vulkan operaciju ili trošak sinkronizacije i predloži jednu minimalnu optimizaciju s mjerljivom A/B hipotezom.

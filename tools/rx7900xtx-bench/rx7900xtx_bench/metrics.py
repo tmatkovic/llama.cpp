@@ -41,17 +41,41 @@ def counter_deltas(before: dict[str, float], after: dict[str, float]) -> dict[st
 
 
 def summarize_samples(samples: list[dict[str, Any]]) -> dict[str, Any]:
-    mtp_output_throughput = [sample["mtp_output_tps"] for sample in samples if sample.get("mtp_output_tps") is not None]
-    end_to_end_throughput = [sample["end_to_end_output_tps"] for sample in samples if sample.get("end_to_end_output_tps") is not None]
-    throughput = [sample["client_delivery_tps"] for sample in samples if sample.get("client_delivery_tps") is not None]
-    ttft = [sample["ttft_ms"] for sample in samples if sample.get("ttft_ms") is not None]
-    return {
-        "sample_count": len(samples),
-        "mtp_output_tps": summarize_values(mtp_output_throughput),
-        "end_to_end_output_tps": summarize_values(end_to_end_throughput),
-        "client_delivery_tps": summarize_values(throughput),
-        "ttft_ms": summarize_values(ttft),
-    }
+    return summarize_sample_group(samples)
+
+
+def summarize_sample_groups(samples: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    groups: dict[tuple[str, int, str], list[dict[str, Any]]] = {}
+    for sample in samples:
+        key = (str(sample["fixture_id"]), int(sample["observed_depth"]), str(sample["effective_prompt_mode"]))
+        groups.setdefault(key, []).append(sample)
+    return [
+        {
+            "fixture_id": fixture_id,
+            "depth": depth,
+            "prompt_mode": prompt_mode,
+            **summarize_sample_group(group_samples),
+        }
+        for (fixture_id, depth, prompt_mode), group_samples in sorted(groups.items())
+    ]
+
+
+def summarize_sample_group(samples: list[dict[str, Any]]) -> dict[str, Any]:
+    metrics = (
+        "mtp_output_tps",
+        "end_to_end_output_tps",
+        "client_delivery_tps",
+        "ttft_ms",
+        "request_ms",
+        "prompt_eval_tokens",
+        "prompt_reused_tokens",
+        "draft_acceptance",
+    )
+    summary: dict[str, Any] = {"sample_count": len(samples)}
+    for name in metrics:
+        values = [float(sample[name]) for sample in samples if sample.get(name) is not None]
+        summary[name] = summarize_values(values)
+    return summary
 
 
 def summarize_values(values: list[float]) -> dict[str, float | int | None]:

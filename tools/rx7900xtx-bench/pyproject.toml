@@ -13,3 +13,6 @@ rx7900xtx-bench = "rx7900xtx_bench.cli:main"
 
 [tool.setuptools]
 packages = ["rx7900xtx_bench"]
+
+[tool.setuptools.package-data]
+rx7900xtx_bench = ["prompts/*.json", "prompts/*.txt"]

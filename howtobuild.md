@@ -130,7 +130,7 @@ sha256sum /home/tmatkovic/.lmstudio/models/ukisai/Swift-1.5-Qwen3.8-27B-GSQ-RCO-
 
 Use the future harness inventory functionality or the pinned upstream GGUF tooling to inspect architecture metadata, tensor types/shapes, embedded MTP tensors, and context-related metadata. The primary GGUF has `general.architecture = qwen35`, 866 tensors, and declares `qwen35.nextn_predict_layers`; do not assume uniform IQ3_S quantization throughout it. The Q4_K_M model is out of scope and must not be inspected or benchmarked for this project.
 
-Read binary help before copying the examples. The current upstream server reference documents the MTP spellings used here; flags may change. The current benchmark screening selection is `n-max=2`; confirm it with a larger validation before treating it as a final deployment setting. Confirm any model-specific draft loading/setup requirements in the selected revision.
+Read binary help before copying the examples. The current upstream server reference documents the MTP spellings used here; flags may change. The benchmark setting `n-max=2` is validated at 32768 prompt tokens for the pinned model/server and is fixed for kernel A/B tests. See `progress.md` for the measured evidence. Confirm any model-specific draft loading/setup requirements in the selected revision.
 
 Illustrative IQ3_S launch:
 
@@ -167,10 +167,10 @@ Create a machine-local `bench.local.json` with model/server paths and the verifi
 
 ```bash
 python -m rx7900xtx_bench --preset qwen35-iq3s --config bench.local.json --dry-run
-python -m rx7900xtx_bench --preset qwen35-iq3s --config bench.local.json --depth 4096 --runs 5 --label initial-control
+python -m rx7900xtx_bench --preset qwen35-iq3s --config bench.local.json --label initial-control
 ```
 
-See `benchmark.md` for complete CLI semantics, MTP sweeps, paired builds, fresh/reused prompts, result files, and full validation capped at 32k. See `progress.md` for the initial reproducible baseline. No kernel optimization is accepted before reproducible MTP measurements exist.
+The default command runs the quick suite: one chat fixture at 16384 populated prompt tokens, one warmup, and three measured samples. Use `--suite common` or `--suite full` for the three-fixture 32768-token matrix. Use `--prompt-mode fresh` to measure prompt ingestion separately. All normal suites are capped at 32768 populated prompt tokens. See `benchmark.md` for complete CLI semantics, MTP sweeps, paired builds, fresh/reused prompts, and result files. No kernel optimization is accepted before reproducible MTP measurements exist.
 
 ## 8. Experiment workflow
 
