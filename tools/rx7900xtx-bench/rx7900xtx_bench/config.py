@@ -10,7 +10,7 @@ PRESETS: dict[str, dict[str, Any]] = {
     "qwen35-iq3s": {
         "model_filename": "Swift-1.5-Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf",
         "context_size": 200000,
-        "depths": [4096, 16384, 32768, 65536, 98304],
+        "depths": [4096, 16384, 32768],
         "server_args": [
             "--alias", "ukisaiswift1.5-27b-GSQ-RCO",
             "--device", "Vulkan0",
@@ -22,7 +22,7 @@ PRESETS: dict[str, dict[str, Any]] = {
             "--cache-type-k", "q8_0",
             "--cache-type-v", "q8_0",
             "--spec-type", "draft-mtp",
-            "--spec-draft-n-max", "4",
+            "--spec-draft-n-max", "2",
             "--spec-draft-n-min", "0",
             "--threads", "4",
             "--jinja",
@@ -59,3 +59,18 @@ def resolve_config(preset_name: str, local_config: dict[str, Any]) -> dict[str, 
     config = deepcopy(PRESETS[preset_name])
     config.update(local_config)
     return config
+
+
+def set_mtp_n_max(config: dict[str, Any], n_max: int) -> dict[str, Any]:
+    if n_max <= 0:
+        raise ValueError("MTP n-max must be positive")
+    result = deepcopy(config)
+    server_args = result["server_args"]
+    try:
+        index = server_args.index("--spec-draft-n-max")
+    except ValueError as error:
+        raise ValueError("preset has no --spec-draft-n-max setting") from error
+    if index + 1 >= len(server_args):
+        raise ValueError("preset has no value for --spec-draft-n-max")
+    server_args[index + 1] = str(n_max)
+    return result

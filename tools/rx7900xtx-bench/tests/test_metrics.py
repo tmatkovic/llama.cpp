@@ -1,6 +1,6 @@
 import unittest
 
-from rx7900xtx_bench.metrics import counter_deltas, summarize_samples, summarize_values
+from rx7900xtx_bench.metrics import counter_deltas, server_generation_metrics, summarize_samples, summarize_values
 
 
 class MetricsTest(unittest.TestCase):
@@ -23,12 +23,40 @@ class MetricsTest(unittest.TestCase):
         self.assertEqual(summary["mean"], 20.0)
         self.assertEqual(summary["median"], 20.0)
 
+    def test_server_generation_metrics_uses_all_final_output_tokens(self):
+        result = server_generation_metrics({
+            "predicted_n": 512,
+            "predicted_ms": 8000.0,
+            "predicted_per_second": 63.875,
+        }, 512)
+        self.assertEqual(result["server_generation_ms"], 8000.0)
+        self.assertEqual(result["server_predicted_n"], 512)
+        self.assertEqual(result["server_predicted_tps"], 63.875)
+        self.assertEqual(result["mtp_output_tps"], 64.0)
+
+    def test_server_generation_metrics_rejects_mismatched_token_counts(self):
+        with self.assertRaisesRegex(RuntimeError, "does not match"):
+            server_generation_metrics({
+                "predicted_n": 511,
+                "predicted_ms": 8000.0,
+                "predicted_per_second": 63.875,
+            }, 512)
+
+    def test_server_generation_metrics_rejects_missing_generation_time(self):
+        with self.assertRaisesRegex(RuntimeError, "predicted_ms"):
+            server_generation_metrics({
+                "predicted_n": 512,
+                "predicted_per_second": 63.875,
+            }, 512)
+
     def test_samples_include_reported_throughputs(self):
         summary = summarize_samples([{
+            "mtp_output_tps": 12.0,
             "end_to_end_output_tps": 10.0,
             "client_delivery_tps": 8.0,
             "ttft_ms": 100.0,
         }])
+        self.assertEqual(summary["mtp_output_tps"]["mean"], 12.0)
         self.assertEqual(summary["end_to_end_output_tps"]["mean"], 10.0)
         self.assertEqual(summary["client_delivery_tps"]["mean"], 8.0)
 

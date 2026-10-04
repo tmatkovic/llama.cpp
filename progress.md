@@ -36,9 +36,33 @@ Run directory: `bench-results/20261003T182056Z-iq3s-quick-baseline/` (local and 
 | Draft accepted | 1644 |
 | Weighted draft acceptance | 45.24% |
 
-`server_predicted_tps_unvalidated` is retained as raw server timing. Its exact coverage of the complete MTP draft/verify/commit loop still needs source validation before it becomes the authoritative score.
+Server timing semantics were validated against the pinned source. `predicted_ms` spans post-prompt generation through the final synchronized MTP step, including draft, verification, acceptance, and commit work. The runner's authoritative `mtp_output_tps` is `tokens_predicted / (predicted_ms / 1000)`. Raw `predicted_per_second` remains recorded, but upstream excludes the first output token from its numerator.
 
 The slot-selection log can report LCP similarity on later requests. This is not prefix reuse in this run: `--no-cache-prompt` disables reuse of prior prompt evaluation, and every measured request evaluated all 4096 prompt tokens.
+
+## MTP n-max screening
+
+Run directories: `bench-results/20261004T085923Z-iq3s-nmax-screening-depth4096-nmax1/` through `bench-results/20261004T091004Z-iq3s-nmax-screening-depth16384-nmax8/`, plus `20261004T091607Z-iq3s-nmax-screening-depth4096-nmax3/` and `20261004T091705Z-iq3s-nmax-screening-depth16384-nmax3/` (local and ignored).
+
+- Workload: project-authored chat fixture, fresh requests, 512 output tokens
+- Depths: 4096 and 16384 prompt tokens with allocated context of 200000 tokens
+- Candidates: `n-max=1,2,4,8`
+- Each combination: 1 excluded warmup and 3 measured requests
+
+| Depth | n-max | MTP output TPS mean | TTFT mean | Weighted draft acceptance |
+|---:|---:|---:|---:|---:|
+| 4096 | 1 | 68.52 | 4813.93 ms | 77.40% |
+| 4096 | 2 | 76.25 | 4833.89 ms | 67.18% |
+| 4096 | 3 | 69.95 | 4845.08 ms | 51.61% |
+| 4096 | 4 | 70.11 | 4874.23 ms | 46.95% |
+| 4096 | 8 | 29.59 | 4869.14 ms | 32.29% |
+| 16384 | 1 | 64.97 | 20222.74 ms | 80.74% |
+| 16384 | 2 | 68.91 | 20234.82 ms | 65.11% |
+| 16384 | 3 | 68.17 | 20306.74 ms | 57.31% |
+| 16384 | 4 | 66.06 | 20365.61 ms | 50.34% |
+| 16384 | 8 | 26.60 | 20461.39 ms | 29.32% |
+
+`n-max=2` is the screening winner at both primary depths and is frozen in the benchmark preset for fixed-setting kernel A/B comparisons. This three-run screening does not replace broader validation of the selected setting.
 
 ## Benchmark runner status
 
@@ -54,7 +78,5 @@ Implemented and tested:
 
 ## Next work
 
-1. Validate the server timing field against the pinned source and decide which final-output TPS is authoritative.
-2. Run the MTP `n-max` sweep at 4096 and 16384 tokens, then freeze the selected configuration.
-3. Profile the measured serving path before proposing any Vulkan kernel or graph change.
-4. Add the smallest measured optimization and compare same-commit control and optimized builds.
+1. Profile the measured serving path before proposing any Vulkan kernel or graph change.
+2. Add the smallest measured optimization and compare same-commit control and optimized builds.
