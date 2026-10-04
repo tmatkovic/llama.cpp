@@ -130,12 +130,12 @@ sha256sum /home/tmatkovic/.lmstudio/models/ukisai/Swift-1.5-Qwen3.8-27B-GSQ-RCO-
 
 Use the future harness inventory functionality or the pinned upstream GGUF tooling to inspect architecture metadata, tensor types/shapes, embedded MTP tensors, and context-related metadata. The primary GGUF has `general.architecture = qwen35`, 866 tensors, and declares `qwen35.nextn_predict_layers`; do not assume uniform IQ3_S quantization throughout it. The Q4_K_M model is out of scope and must not be inspected or benchmarked for this project.
 
-Read binary help before copying the examples. The current upstream server reference documents the MTP spellings used here; flags may change. `n-max=4` below is only an initial example, not a measured best value. Confirm any model-specific draft loading/setup requirements in the selected revision.
+Read binary help before copying the examples. The current upstream server reference documents the MTP spellings used here; flags may change. The current benchmark screening selection is `n-max=2`; confirm it with a larger validation before treating it as a final deployment setting. Confirm any model-specific draft loading/setup requirements in the selected revision.
 
 Illustrative IQ3_S launch:
 
 ```bash
-./build-rx7900xtx/bin/llama-server -m /home/tmatkovic/.lmstudio/models/ukisai/Swift-1.5-Qwen3.8-27B-GSQ-RCO-GGUF/Swift-1.5-Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf -c 200000 -np 1 -ngl all --spec-type draft-mtp --spec-draft-n-max 4 --host 127.0.0.1 --port 8080
+./build-rx7900xtx/bin/llama-server -m /home/tmatkovic/.lmstudio/models/ukisai/Swift-1.5-Qwen3.8-27B-GSQ-RCO-GGUF/Swift-1.5-Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf -c 200000 -np 1 -ngl all --spec-type draft-mtp --spec-draft-n-max 2 --host 127.0.0.1 --port 8080
 ```
 
 Use `build-control` before an optimized binary exists. Run only one server at a time. Confirm effective capacity, single slot, GPU placement, and active MTP from startup/request behavior. A filename containing `mtp` or a successful HTTP response is insufficient proof of active speculation.
@@ -145,7 +145,7 @@ Batch/ubatch, cache types, flash attention, CPU threads, and real sampling setti
 After runtime controls are implemented, this should disable our patches while retaining upstream MTP:
 
 ```bash
-GGML_VULKAN_RX7900XTX_OPT=off ./build-rx7900xtx/bin/llama-server -m /home/tmatkovic/.lmstudio/models/ukisai/Swift-1.5-Qwen3.8-27B-GSQ-RCO-GGUF/Swift-1.5-Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf -c 200000 -np 1 -ngl all --spec-type draft-mtp --spec-draft-n-max 4
+GGML_VULKAN_RX7900XTX_OPT=off ./build-rx7900xtx/bin/llama-server -m /home/tmatkovic/.lmstudio/models/ukisai/Swift-1.5-Qwen3.8-27B-GSQ-RCO-GGUF/Swift-1.5-Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf -c 200000 -np 1 -ngl all --spec-type draft-mtp --spec-draft-n-max 2
 ```
 
 Use compiled ON/OFF variants for primary acceptance evidence. Runtime-off is convenient for diagnostics and checking gate coverage.
@@ -170,7 +170,7 @@ python -m rx7900xtx_bench --preset qwen35-iq3s --config bench.local.json --dry-r
 python -m rx7900xtx_bench --preset qwen35-iq3s --config bench.local.json --depth 4096 --runs 5 --label initial-control
 ```
 
-See `benchmark.md` for complete CLI semantics, MTP sweeps, paired builds, fresh/reused prompts, result files, and full validation capped at 96k. See `progress.md` for the initial reproducible baseline. No kernel optimization is accepted before reproducible MTP measurements exist.
+See `benchmark.md` for complete CLI semantics, MTP sweeps, paired builds, fresh/reused prompts, result files, and full validation capped at 32k. See `progress.md` for the initial reproducible baseline. No kernel optimization is accepted before reproducible MTP measurements exist.
 
 ## 8. Experiment workflow
 

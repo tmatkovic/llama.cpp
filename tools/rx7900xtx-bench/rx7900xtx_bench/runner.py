@@ -10,7 +10,7 @@ import time
 from typing import Any
 
 from .server_client import ServerClient
-from .metrics import counter_deltas, summarize_samples
+from .metrics import counter_deltas, server_generation_metrics, summarize_samples
 from .process import ServerProcess
 from .workloads import FIXTURE_TEXT_SHA256, build_prompt_tokens
 
@@ -121,10 +121,16 @@ def measure_request(client: ServerClient, prompt_tokens: list[int], output_token
         raise RuntimeError("completion response has no authoritative final token count")
     request_seconds = request_finished - request_started
     delivery_seconds = request_finished - first_content_time if first_content_time is not None else None
-    timings = final_response.get("timings") if isinstance(final_response.get("timings"), dict) else {}
+    timings = final_response.get("timings")
+    if not isinstance(timings, dict):
+        raise RuntimeError("completion response has no server timings")
+    generation_metrics = server_generation_metrics(timings, final_output_tokens)
     deltas = counter_deltas(metrics_before, metrics_after)
     draft_proposed = deltas["llamacpp:spec_decode_num_draft_tokens_total"]
     draft_accepted = deltas["llamacpp:spec_decode_num_accepted_tokens_total"]
+    draft_steps = deltas["llamacpp:spec_decode_num_drafts_total"]
+    if draft_proposed is None or draft_proposed <= 0 or draft_steps is None or draft_steps <= 0:
+        raise RuntimeError("scored request did not record active MTP drafting and verification")
     return {
         "sample_id": sample_id,
         "warmup": False,
@@ -133,13 +139,13 @@ def measure_request(client: ServerClient, prompt_tokens: list[int], output_token
         "ttft_ms": None if first_content_time is None else (first_content_time - request_started) * 1000.0,
         "end_to_end_output_tps": final_output_tokens / request_seconds if request_seconds > 0 else None,
         "client_delivery_tps": final_output_tokens / delivery_seconds if delivery_seconds and delivery_seconds > 0 else None,
-        "server_predicted_tps_unvalidated": timings.get("predicted_per_second"),
+        **generation_metrics,
         "prompt_eval_tokens": timings.get("prompt_n"),
         "prompt_tps": timings.get("prompt_per_second"),
         "draft_proposed": draft_proposed,
         "draft_accepted": draft_accepted,
         "draft_acceptance": draft_accepted / draft_proposed if draft_proposed and draft_accepted is not None else None,
-        "draft_steps": deltas["llamacpp:spec_decode_num_drafts_total"],
+        "draft_steps": draft_steps,
         "raw_response": final_response,
     }
 
@@ -256,6 +262,7 @@ def write_csv(path: Path, samples: list[dict[str, Any]]) -> None:
 
 
 def write_report(path: Path, summary: dict[str, Any], manifest: dict[str, Any]) -> None:
+    mtp_output_tps = summary["mtp_output_tps"]
     end_to_end_tps = summary["end_to_end_output_tps"]
     delivery_tps = summary["client_delivery_tps"]
     with path.open("w", encoding="utf-8") as file:
@@ -267,10 +274,14 @@ def write_report(path: Path, summary: dict[str, Any], manifest: dict[str, Any]) 
         runtime = manifest["runtime"]
         file.write(f"- Context requested: {runtime['context_requested']} tokens\n")
         file.write(f"- Context effective: {runtime.get('context_effective', runtime['context_effective_expected'])} tokens\n\n")
+        file.write("## MTP final output throughput\n\n")
+        file.write(f"- Mean: {mtp_output_tps['mean']} tokens/s\n")
+        file.write(f"- Median: {mtp_output_tps['median']} tokens/s\n\n")
+        file.write("This score is final output tokens divided by server generation time.\n\n")
         file.write("## End-to-end final output throughput\n\n")
         file.write(f"- Mean: {end_to_end_tps['mean']} tokens/s\n")
         file.write(f"- Median: {end_to_end_tps['median']} tokens/s\n\n")
         file.write("## Client delivery throughput\n\n")
         file.write(f"- Mean: {delivery_tps['mean']} tokens/s\n")
         file.write(f"- Median: {delivery_tps['median']} tokens/s\n")
-        file.write("\nServer predicted throughput is retained as unvalidated raw data.\n")
+        file.write("\nThe raw server predicted throughput is retained in each sample.\n")

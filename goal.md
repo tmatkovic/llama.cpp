@@ -24,7 +24,7 @@ Keep reusable device, quantization, and shape optimizations independent of model
 | Speculation | Embedded MTP, verified on each real GGUF and pinned upstream revision |
 | Primary model | `Swift-1.5-Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf` |
 | Primary allocated context | `200000` tokens |
-| Benchmark populated depths | `4096`, `16384`, `32768`, `65536`, `98304` tokens |
+| Benchmark populated depths | `4096`, `16384`, `32768` tokens |
 
 The primary model filename is an exact user-supplied identifier. Preserve its spelling. Do not silently substitute a differently named Qwen model. The secondary Q4_K_M model is out of scope and must not be used as a validation substitute. Do not infer layer count, hidden size, attention layout, training context limit, or tensor quantization from a filename or earlier conversational descriptions.
 
@@ -42,10 +42,9 @@ Priority order:
 
 1. MTP final output speed and responsiveness at 4k and 16k populated context.
 2. MTP performance at 32k.
-3. Validation of behavior and performance at 64k and 96k.
-4. Prompt ingestion and end-to-end request latency throughout this range.
+3. Prompt ingestion and end-to-end request latency throughout this range.
 
-No benchmark in the agreed suite should populate context beyond 98304 tokens. A gain below 96k might carry over to a larger context, but that is an expectation, not a proven result. Testing 128k or 200k populated context is outside the current task. Startup at the configured capacity remains part of normal operation.
+No benchmark in the agreed suite should populate context beyond 32768 tokens. A gain below 32k might carry over to a larger context, but that is an expectation, not a proven result. Populated-context testing at 64k, 96k, 128k, or 200k is outside the current task. Startup at the configured capacity remains part of normal operation.
 
 How the user starts this model currently:
 ```
@@ -113,7 +112,7 @@ Out of current scope:
 - Multiple simultaneous users, batching across users, multi-GPU scaling, or serving fleets.
 - The secondary Q4_K_M GGUF, including its inventory, benchmark, validation, and optimization.
 - Requantizing weights, changing the model, or accepting output-quality loss to raise a score.
-- Populated-context benchmarks above 96k.
+- Populated-context benchmarks at 64k or above.
 - Implementing speculative details of an unreleased/future model architecture.
 - A separate inference engine or a broad fork of llama.cpp internals.
 

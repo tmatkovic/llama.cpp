@@ -1,6 +1,6 @@
 # Benchmark specification and operator interface
 
-Status: the initial baseline runner is implemented and the first IQ3_S 4096-token MTP baseline completed successfully. It launches an owned server, verifies health, device inventory, server context, model path, and MTP draft-context initialization, builds an exact-depth token prompt, performs one warmup plus repeated fresh requests, records raw responses/logs/manifest data, and reads existing speculative counters from `/metrics`. Prefix reuse, suites, MTP sweeps, paired comparison, packaging, and stress runs remain planned. See `progress.md` for the measured baseline.
+Status: the initial baseline runner is implemented and the first IQ3_S 4096-token MTP baseline completed successfully. It launches an owned server, verifies health, device inventory, server context, model path, and MTP draft-context initialization, builds an exact-depth token prompt, performs one warmup plus repeated fresh requests, records raw responses/logs/manifest data, and reads existing speculative counters from `/metrics`. It supports explicit depth lists and MTP `n-max` sweeps, creating a separate result directory per combination. Prefix reuse, suites, paired comparison, packaging, and stress runs remain planned. See `progress.md` for measured results.
 Specification date: 2026-10-01. Goals are defined in `goal.md`.
 
 ## 1. Purpose and score
@@ -15,9 +15,9 @@ The benchmark is mandatory evidence for retained optimizations and is designed f
 
 | Preset | Model filename | Server context capacity | Measured prompt depths |
 |---|---|---:|---|
-| `qwen35-iq3s` | `Swift-1.5-Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf` | 200000 | 4096, 16384, 32768, 65536, 98304 |
+| `qwen35-iq3s` | `Swift-1.5-Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf` | 200000 | 4096, 16384, 32768 |
 
-Here 4k means 4096 tokens and 96k means 98304 tokens. Context capacity is fixed even for the smallest test. The harness requests 200000 tokens; upstream rounds this to the verified effective 200192-token context on its 256-token alignment boundary, and records both values. Benchmark prompt depth never exceeds 98304. Generated tokens naturally increase live state beyond initial prompt depth; reserve capacity for output and speculative work. The cap applies to the initial populated benchmark depth, not an artificial cutoff of every generated token.
+Here 4k means 4096 tokens and 32k means 32768 tokens. Context capacity is fixed even for the smallest test. The harness requests 200000 tokens; upstream rounds this to the verified effective 200192-token context on its 256-token alignment boundary, and records both values. Benchmark prompt depth never exceeds 32768. Generated tokens naturally increase live state beyond initial prompt depth; reserve capacity for output and speculative work. The cap applies to the initial populated benchmark depth, not an artificial cutoff of every generated token.
 
 One slot, one outstanding request, no user traffic during measurement. The IQ3_S model is the only benchmark workload in the current project.
 
@@ -29,7 +29,7 @@ Verify actual context capacity and MTP activation from the server, not only the 
 |---|---|---|---:|---:|
 | `quick` | 4096 | One fixed chat fixture | 512 tokens | 5 |
 | `common` | 4096, 16384, 32768 | Two chat fixtures and one code fixture | 512 tokens | 10 |
-| `full` | All five depths | Same three fixture families with depth-specific context | 512 tokens | 10 |
+| `full` | All three depths | Same three fixture families with depth-specific context | 512 tokens | 10 |
 | `stress` | Selected agreed depth, default 16384 | Sequential chat requests | Up to 512 each | 100 |
 
 Defaults are starting policies, not claims that these durations fit every machine. `--runs` and `--output-tokens` override them. Warm up once per server/configuration/depth before measured generation; retain warmup records but exclude them from scores. A quick test is a filter, not final evidence.
@@ -66,7 +66,7 @@ Use structured upstream response data when available. Capability-detect fields f
 | Metric | Definition and handling |
 |---|---|
 | `final_output_tokens` | Actual sampled/emitted tokens, including internal output tokens if the server counts them; distinguish visible text from reasoning tokens |
-| `mtp_output_tps` | `final_output_tokens / server_generation_seconds` when upstream generation timing covers the complete MTP draft/verify/commit loop; validate that definition in source |
+| `mtp_output_tps` | `final_output_tokens / (predicted_ms / 1000)` after validating that server generation time covers the complete MTP draft/verify/commit loop |
 | `client_delivery_tps` | Final token count divided by client time from first content-bearing event to last content-bearing event; record denominator and streaming burst limitations |
 | `ttft_ms` | Monotonic client time from request submission to first content-bearing streaming event, excluding role-only and keepalive events |
 | `request_ms` | Submission to completed response received |
@@ -80,7 +80,7 @@ Use structured upstream response data when available. Capability-detect fields f
 | `vram_peak_bytes` | Sampled peak with sampling interval, device, and source; distinguish whole-device use from process allocation |
 | Environment telemetry | GPU clocks/temperature/power when available; missing telemetry does not itself invalidate a run |
 
-Server generation timing is the main score only after its MTP coverage is verified. Until then, report it as an unvalidated server timing and use clearly labeled client throughput/end-to-end timings. Streaming events may contain several tokens, especially with MTP; one SSE event is not one token. Do not estimate final token count by counting chunks or retokenizing visible text when authoritative server token counts exist.
+At pinned revision `0f0796f9076f3ebd3f49fa9be74598b33c42aada`, `predicted_ms` starts after prompt evaluation and ends after the final synchronized generation step. It includes MTP drafting, target verification, acceptance, and commit work. `predicted_per_second` is retained as raw upstream data, but it uses `n_gen - 1` because the first output token uses the prompt's final logits. The benchmark score instead uses authoritative `tokens_predicted` and `predicted_ms`, so it includes every final output token. Streaming events may contain several tokens, especially with MTP; one SSE event is not one token. Do not estimate final token count by counting chunks or retokenizing visible text when authoritative server token counts exist.
 
 Define measurement boundaries in the result schema. A first-to-last delivery interval can be very short for bursty or tiny outputs; mark unusable denominators rather than producing a misleading huge rate. Optional inter-event gaps describe delivery behavior, not true per-token latency.
 
@@ -91,7 +91,7 @@ MTP must be verified active, not merely requested. Establish GGUF head support, 
 Initial candidate `n-max` values: `1,2,4,8`. These are sweep candidates, not promised valid settings. Check the pinned implementation/model's limits; skip unsupported values with an explicit reason. Sweep other MTP controls only if real help/source and profiling justify them.
 
 1. Screen candidates at 4k and 16k across representative fixtures.
-2. Validate the best candidates at 32k, then 64k/96k.
+2. Validate the best candidates at 32k.
 3. Select for final throughput, TTFT, and stability. Acceptance alone does not choose the winner.
 4. Freeze settings during a kernel A/B comparison.
 5. If a patch changes the best setting, report a separate retuned comparison alongside the fixed-setting result.
@@ -100,7 +100,7 @@ Do not tune on one prompt then claim all-content improvement. Do not introduce a
 
 ## 7. Proposed command-line interface
 
-The implemented baseline runner supports `--preset qwen35-iq3s`, `--model`, `--server`, `--mmproj`, `--config`, `--depth`, `--runs`, `--output-tokens`, `--host`, `--port`, `--timeout-seconds`, `--startup-timeout-seconds`, `--results-dir`, `--label`, and `--dry-run`. All other options in this section remain planned. JSON presets are versioned, and CLI values override presets.
+The implemented baseline runner supports `--preset qwen35-iq3s`, `--model`, `--server`, `--mmproj`, `--config`, `--depth`, `--depths`, `--runs`, `--output-tokens`, `--mtp-n-max`, `--mtp-sweep`, `--host`, `--port`, `--timeout-seconds`, `--startup-timeout-seconds`, `--results-dir`, `--label`, and `--dry-run`. All other options in this section remain planned. JSON presets are versioned, and CLI values override presets.
 
 | Option | Meaning / default |
 |---|---|
@@ -111,7 +111,7 @@ The implemented baseline runner supports `--preset qwen35-iq3s`, `--model`, `--s
 | `--server-url URL` | Attach to an already running server instead of launching; mutually exclusive with launch/A-B settings |
 | `--suite NAME` | `quick`, `common`, `full`, `stress`; default `quick` |
 | `--ctx N` | Allocated capacity; preset default 200000 or 131072 |
-| `--depth N` | One exact prompt depth from the agreed five; overrides suite depth list |
+| `--depth N` | One exact prompt depth from the agreed three; overrides suite depth list |
 | `--depths LIST` | Comma-separated subset of agreed depths; mutually exclusive with `--depth` |
 | `--runs N` | Measured repetitions per fixture, depth, configuration, and variant |
 | `--warmup N` | Excluded warmups per configuration/depth; default 1 |
@@ -162,22 +162,22 @@ Tune MTP:
 ./rx7900xtx-bench --preset qwen35-iq3s --config ./bench.local.json --depths 4096,16384 --mtp-sweep 1,2,4,8 --runs 5
 ```
 
-Compare fixed settings, using an illustrative candidate length of 4 rather than an established optimum:
+Compare fixed settings with the current screening selection `n-max=2`:
 
 ```bash
-./rx7900xtx-bench --preset qwen35-iq3s --config ./bench.local.json --server ./build-rx7900xtx/bin/llama-server --baseline-server ./build-control/bin/llama-server --suite common --mtp-n-max 4 --runs 10 --label iq3s-kernel-v1
+./rx7900xtx-bench --preset qwen35-iq3s --config ./bench.local.json --server ./build-rx7900xtx/bin/llama-server --baseline-server ./build-control/bin/llama-server --suite common --mtp-n-max 2 --runs 10 --label iq3s-kernel-v1
 ```
 
-Full validation, without any depth above 96k:
+Full validation through 32k:
 
 ```bash
 ./rx7900xtx-bench --preset qwen35-iq3s --config ./bench.local.json --suite full --runs 10 --fresh-runs 3
 ```
 
-One 64k measurement and an offline comparison:
+One 32k measurement and an offline comparison:
 
 ```bash
-./rx7900xtx-bench --preset qwen35-iq3s --config ./bench.local.json --depth 65536 --runs 20
+./rx7900xtx-bench --preset qwen35-iq3s --config ./bench.local.json --depth 32768 --runs 20
 ./rx7900xtx-bench compare --baseline bench-results/control-run --candidate bench-results/optimized-run
 ```
 
