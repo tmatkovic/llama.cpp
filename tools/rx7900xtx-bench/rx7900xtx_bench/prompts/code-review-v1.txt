@@ -1,0 +1,8 @@
+def normalize_samples(samples):
+    valid = [sample for sample in samples if sample["status"] == "ok"]
+    if not valid:
+        return {"count": 0, "mean": None}
+    values = [sample["mtp_output_tps"] for sample in valid]
+    return {"count": len(values), "mean": sum(values) / len(values)}
+
+# Review this benchmark helper. The caller needs raw samples, grouped statistics, and a clear separation between cache reuse and fresh prompt evaluation. Identify the next safe improvement.

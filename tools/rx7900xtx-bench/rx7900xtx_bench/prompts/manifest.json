@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "fixtures": [
+    {
+      "id": "chat-planning-v1",
+      "category": "chat",
+      "source": "project-authored",
+      "license": "CC0-1.0",
+      "path": "chat-planning-v1.txt",
+      "text_sha256": "09ea5e0823ebe984a51b873593e5309466235f4fb217b5723e3d3071c3866d50",
+      "construction": "repeat the fixture body before the fixed user question, then preserve the templated generation suffix",
+      "intended_task": "technical planning discussion"
+    },
+    {
+      "id": "chat-debugging-v1",
+      "category": "chat",
+      "source": "project-authored",
+      "license": "CC0-1.0",
+      "path": "chat-debugging-v1.txt",
+      "text_sha256": "52f2ace1b75ba06858559b9336af911a67be16497d795a0e44a4cb36343fdd67",
+      "construction": "repeat the fixture body before the fixed user question, then preserve the templated generation suffix",
+      "intended_task": "long-context debugging discussion"
+    },
+    {
+      "id": "code-review-v1",
+      "category": "code",
+      "source": "project-authored",
+      "license": "CC0-1.0",
+      "path": "code-review-v1.txt",
+      "text_sha256": "1411e608f25fcdd61a56d1960d289a5bebba2477f06420abfba97970586ac7ab",
+      "construction": "repeat the fixture body before the fixed user question, then preserve the templated generation suffix",
+      "intended_task": "code-review continuation"
+    }
+  ]
+}

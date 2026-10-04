@@ -1,6 +1,6 @@
 import unittest
 
-from rx7900xtx_bench.metrics import counter_deltas, server_generation_metrics, summarize_samples, summarize_values
+from rx7900xtx_bench.metrics import counter_deltas, server_generation_metrics, summarize_sample_groups, summarize_samples, summarize_values
 
 
 class MetricsTest(unittest.TestCase):
@@ -59,6 +59,16 @@ class MetricsTest(unittest.TestCase):
         self.assertEqual(summary["mtp_output_tps"]["mean"], 12.0)
         self.assertEqual(summary["end_to_end_output_tps"]["mean"], 10.0)
         self.assertEqual(summary["client_delivery_tps"]["mean"], 8.0)
+
+    def test_groups_do_not_mix_prompt_modes(self):
+        groups = summarize_sample_groups([
+            {"fixture_id": "chat", "observed_depth": 16384, "effective_prompt_mode": "fresh", "mtp_output_tps": 10.0},
+            {"fixture_id": "chat", "observed_depth": 16384, "effective_prompt_mode": "reused-prefix", "mtp_output_tps": 20.0},
+        ])
+
+        self.assertEqual(len(groups), 2)
+        self.assertEqual(groups[0]["mtp_output_tps"]["mean"], 10.0)
+        self.assertEqual(groups[1]["mtp_output_tps"]["mean"], 20.0)
 
 
 if __name__ == "__main__":

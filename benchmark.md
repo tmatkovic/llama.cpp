@@ -1,6 +1,6 @@
 # Benchmark specification and operator interface
 
-Status: the initial baseline runner is implemented and the first IQ3_S 4096-token MTP baseline completed successfully. It launches an owned server, verifies health, device inventory, server context, model path, and MTP draft-context initialization, builds an exact-depth token prompt, performs one warmup plus repeated fresh requests, records raw responses/logs/manifest data, and reads existing speculative counters from `/metrics`. It supports explicit depth lists and MTP `n-max` sweeps, creating a separate result directory per combination. Prefix reuse, suites, paired comparison, packaging, and stress runs remain planned. See `progress.md` for measured results.
+Status: the runner supports versioned fixtures, quick/common/full suites, fresh/reused-prefix modes, raw responses, and MTP metrics. The first IQ3_S 4096-token baseline remains historical evidence; current normal suites use 16k and 32k only. The required 32k `n-max=2` validation remains to be run. See `progress.md` for measured results.
 Specification date: 2026-10-01. Goals are defined in `goal.md`.
 
 ## 1. Purpose and score
@@ -15,7 +15,7 @@ The benchmark is mandatory evidence for retained optimizations and is designed f
 
 | Preset | Model filename | Server context capacity | Measured prompt depths |
 |---|---|---:|---|
-| `qwen35-iq3s` | `Swift-1.5-Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf` | 200000 | 4096, 16384, 32768 |
+| `qwen35-iq3s` | `Swift-1.5-Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf` | 200000 | 16384, 32768 |
 
 Here 4k means 4096 tokens and 32k means 32768 tokens. Context capacity is fixed even for the smallest test. The harness requests 200000 tokens; upstream rounds this to the verified effective 200192-token context on its 256-token alignment boundary, and records both values. Benchmark prompt depth never exceeds 32768. Generated tokens naturally increase live state beyond initial prompt depth; reserve capacity for output and speculative work. The cap applies to the initial populated benchmark depth, not an artificial cutoff of every generated token.
 
@@ -27,12 +27,11 @@ Verify actual context capacity and MTP activation from the server, not only the 
 
 | Suite | Depths | Prompt selection | Output | Measured repetitions |
 |---|---|---|---:|---:|
-| `quick` | 4096 | One fixed chat fixture | 512 tokens | 5 |
-| `common` | 4096, 16384, 32768 | Two chat fixtures and one code fixture | 512 tokens | 10 |
-| `full` | All three depths | Same three fixture families with depth-specific context | 512 tokens | 10 |
-| `stress` | Selected agreed depth, default 16384 | Sequential chat requests | Up to 512 each | 100 |
+| `quick` | 16384 | One fixed chat fixture | 512 tokens | 3 |
+| `common` | 32768 | Two chat fixtures and one code fixture | 512 tokens | 3 |
+| `full` | 32768 | Same three fixtures | 512 tokens | 3 |
 
-Defaults are starting policies, not claims that these durations fit every machine. `--runs` and `--output-tokens` override them. Warm up once per server/configuration/depth before measured generation; retain warmup records but exclude them from scores. A quick test is a filter, not final evidence.
+`quick` is the default suite and is the fast kernel A/B filter. `common` adds fixture coverage at 32k, while `full` is the same 32k matrix for explicit higher repetition through `--runs`. `--runs` and `--output-tokens` override suite defaults. Warm up once per server/configuration/depth before measured generation; retain warmup records but exclude them from scores. No normal suite accepts 4k or populated prompts above 32k.
 
 Long prompts are expensive to prefill. Separate two workload modes:
 
@@ -41,13 +40,12 @@ Long prompts are expensive to prefill. Separate two workload modes:
 
 Use `reused-prefix` for frequent generation iteration if the pinned server safely supports reuse for this model/state. Validate that each repetition begins from the same prefix, without previous generated output. Do not assume persistent-slot save/restore supports every hybrid or recurrent architecture. If reliable restore/reuse cannot be established, use fresh preparation and label its cost explicitly.
 
-For `full`, run the generation matrix and a fresh-prompt pass with 3 repetitions per fixture/depth. `--fresh-runs` controls that second pass. Never mix fresh and reused-prefix TTFT/prompt scores in one statistic. Display an estimated workload count before execution; do not require confirmation to proceed.
+Run fresh and reused-prefix as distinct invocations. Never mix their TTFT, prompt, or throughput scores in one statistic. Reused-prefix is enabled only after the harness has verified identical-prefix reuse for the pinned server and model; otherwise the run is labelled `fresh-fallback`.
 
-A stress run checks sustained throughput, acceptance degradation, temperature behavior, and state reuse. It is useful after scheduling/state changes, not mandatory after every small shader edit.
 
 ## 4. Prompt fixtures and exact token depth
 
-Maintain a versioned prompt manifest. Each fixture records ID, category, source/license, text SHA-256, construction rules, tokenizer identity, and intended task. Use reproducible public or project-authored text, not private conversations.
+Maintain a versioned prompt manifest. Each fixture records ID, category, source/license, text SHA-256, construction rules, tokenizer identity, and intended task. The current manifest contains two project-authored chat fixtures and one code fixture under `tools/rx7900xtx-bench/rx7900xtx_bench/prompts/`. Do not use private conversations.
 
 Use chat-like requests as the main fixtures and a smaller code fixture to reflect actual use. Long-depth fixtures should contain varied coherent text/code, not one token repeated thousands of times. Acceptance depends on content, so a single easy repetitive prompt is insufficient for final validation.
 
@@ -98,6 +96,8 @@ Initial candidate `n-max` values: `1,2,4,8`. These are sweep candidates, not pro
 
 Do not tune on one prompt then claim all-content improvement. Do not introduce automatic depth-dependent policy until its benefit and guard conditions are measured. Preserve the actual sampler and verification rules; changing acceptance semantics is not legitimate tuning.
 
+The fixed kernel A/B setting is `n-max=2`. It was validated in fresh mode at 32768 prompt tokens with the two chat fixtures and the code fixture, with three 512-token samples per fixture and active MTP draft/verify counters. See `progress.md` for result directories and measured values.
+
 ## 7. Proposed command-line interface
 
 The implemented baseline runner supports `--preset qwen35-iq3s`, `--model`, `--server`, `--mmproj`, `--config`, `--depth`, `--depths`, `--runs`, `--output-tokens`, `--mtp-n-max`, `--mtp-sweep`, `--host`, `--port`, `--timeout-seconds`, `--startup-timeout-seconds`, `--results-dir`, `--label`, and `--dry-run`. All other options in this section remain planned. JSON presets are versioned, and CLI values override presets.
@@ -109,15 +109,14 @@ The implemented baseline runner supports `--preset qwen35-iq3s`, `--model`, `--s
 | `--server PATH` | llama-server executable to launch; required for launch mode |
 | `--baseline-server PATH` | Control executable for paired A/B mode |
 | `--server-url URL` | Attach to an already running server instead of launching; mutually exclusive with launch/A-B settings |
-| `--suite NAME` | `quick`, `common`, `full`, `stress`; default `quick` |
+| `--suite NAME` | `quick`, `common`, `full`; default `quick` |
 | `--ctx N` | Allocated capacity; preset default 200000 or 131072 |
-| `--depth N` | One exact prompt depth from the agreed three; overrides suite depth list |
-| `--depths LIST` | Comma-separated subset of agreed depths; mutually exclusive with `--depth` |
+| `--depth N` | One exact prompt depth: 16384 or 32768; overrides suite depth list |
+| `--depths LIST` | Comma-separated subset of 16384,32768; mutually exclusive with `--depth` |
 | `--runs N` | Measured repetitions per fixture, depth, configuration, and variant |
 | `--warmup N` | Excluded warmups per configuration/depth; default 1 |
-| `--fresh-runs N` | Fresh-prompt pass repetitions for full suite; default 3, 0 disables and labels omission |
 | `--output-tokens N` | Generation budget; default 512 |
-| `--prompt-mode MODE` | `fresh` or `reused-prefix`; default reused-prefix with explicit capability handling |
+| `--prompt-mode MODE` | `fresh` or `reused-prefix`; default reused-prefix with capability gate and fresh fallback |
 | `--mtp-n-max N` | One supported candidate draft length; use selected local value, initially upstream default |
 | `--mtp-sweep LIST` | Candidate draft lengths to test; mutually exclusive with `--mtp-n-max` |
 | `--batch N`, `--ubatch N` | Upstream logical and physical batch settings; initially inherit recorded preset/server defaults |
@@ -153,25 +152,25 @@ After the harness is implemented and packaged:
 Run the common-use suite:
 
 ```bash
-./rx7900xtx-bench --preset qwen35-iq3s --config ./bench.local.json --suite common --runs 10
+./rx7900xtx-bench --preset qwen35-iq3s --config ./bench.local.json --suite common
 ```
 
 Tune MTP:
 
 ```bash
-./rx7900xtx-bench --preset qwen35-iq3s --config ./bench.local.json --depths 4096,16384 --mtp-sweep 1,2,4,8 --runs 5
+./rx7900xtx-bench --preset qwen35-iq3s --config ./bench.local.json --depths 16384,32768 --mtp-sweep 1,2,4,8 --runs 3
 ```
 
 Compare fixed settings with the current screening selection `n-max=2`:
 
 ```bash
-./rx7900xtx-bench --preset qwen35-iq3s --config ./bench.local.json --server ./build-rx7900xtx/bin/llama-server --baseline-server ./build-control/bin/llama-server --suite common --mtp-n-max 2 --runs 10 --label iq3s-kernel-v1
+./rx7900xtx-bench --preset qwen35-iq3s --config ./bench.local.json --server ./build-rx7900xtx/bin/llama-server --suite common --mtp-n-max 2 --label iq3s-kernel-v1
 ```
 
 Full validation through 32k:
 
 ```bash
-./rx7900xtx-bench --preset qwen35-iq3s --config ./bench.local.json --suite full --runs 10 --fresh-runs 3
+./rx7900xtx-bench --preset qwen35-iq3s --config ./bench.local.json --suite full --prompt-mode fresh
 ```
 
 One 32k measurement and an offline comparison:
@@ -234,7 +233,7 @@ Keep profiling runs separate from scored runs because instrumentation changes ti
 1. Launch/health/client/token-depth handling and raw request timings.
 2. Model inventory, manifests, summaries, comparison, and manually runnable package.
 3. Capability-checked MTP counters, sweep support, and paired control/optimized runs.
-4. Reliable prefix reuse/fresh separation, complete suite, and stress validation.
+4. Reliable prefix reuse/fresh separation and complete 16k/32k suite validation.
 5. Optional detailed profiling integrations.
 
 Before starting kernel experiments, require a reproducible MTP-active baseline, accurate final token counts, trustworthy time boundaries, and correct prompt depth. Acceptance counters can initially be missing with explicit labels, but are required to conclude the MTP tuning task.
